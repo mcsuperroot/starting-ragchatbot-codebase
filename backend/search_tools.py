@@ -1,6 +1,8 @@
 from typing import Dict, Any, Optional, Protocol
 from abc import ABC, abstractmethod
 from vector_store import VectorStore, SearchResults
+from exa_py import Exa
+from config import config
 
 
 class Tool(ABC):
@@ -8,7 +10,7 @@ class Tool(ABC):
     
     @abstractmethod
     def get_tool_definition(self) -> Dict[str, Any]:
-        """Return Anthropic tool definition for this tool"""
+        """Return OpenAI-compatible tool definition for this tool"""
         pass
     
     @abstractmethod
@@ -25,27 +27,30 @@ class CourseSearchTool(Tool):
         self.last_sources = []  # Track sources from last search
     
     def get_tool_definition(self) -> Dict[str, Any]:
-        """Return Anthropic tool definition for this tool"""
+        """Return OpenAI tool definition for this tool"""
         return {
-            "name": "search_course_content",
-            "description": "Search course materials with smart course name matching and lesson filtering",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string", 
-                        "description": "What to search for in the course content"
+            "type": "function",
+            "function": {
+                "name": "search_course_content",
+                "description": "Search course materials with smart course name matching and lesson filtering",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string", 
+                            "description": "What to search for in the course content"
+                        },
+                        "course_name": {
+                            "type": "string",
+                            "description": "Course title (partial matches work, e.g. 'MCP', 'Introduction')"
+                        },
+                        "lesson_number": {
+                            "type": "integer",
+                            "description": "Specific lesson number to search within (e.g. 1, 2, 3)"
+                        }
                     },
-                    "course_name": {
-                        "type": "string",
-                        "description": "Course title (partial matches work, e.g. 'MCP', 'Introduction')"
-                    },
-                    "lesson_number": {
-                        "type": "integer",
-                        "description": "Specific lesson number to search within (e.g. 1, 2, 3)"
-                    }
-                },
-                "required": ["query"]
+                    "required": ["query"]
+                }
             }
         }
     
@@ -113,6 +118,66 @@ class CourseSearchTool(Tool):
         
         return "\n\n".join(formatted)
 
+
+class WebSearchTool(Tool):
+    """Tool for searching the web using Exa API"""
+
+    def __init__(self):
+        self.exa = Exa(api_key=config.EXA_API_KEY)
+        self.last_sources = []
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": "Search the web for information when course materials don't have the answer",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What to search for on the web"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }
+
+    def execute(self, query: str) -> str:
+        if not config.EXA_API_KEY:
+            return "Web search is not configured. Please set EXA_API_KEY."
+
+        try:
+            results = self.exa.search(
+                query,
+                num_results=5,
+                contents={"highlights": {"max_characters": 2000}}
+            )
+        except Exception as e:
+            return f"Web search failed: {str(e)}"
+
+        if not results.results:
+            return "No web results found."
+
+        return self._format_results(results)
+
+    def _format_results(self, results) -> str:
+        formatted = []
+        sources = []
+
+        for result in results.results:
+            title = result.title or result.url
+            url = result.url
+            highlight = result.highlights[0] if result.highlights else result.text or ""
+
+            sources.append(f"{title} ({url})")
+            formatted.append(f"[{title}]({url})\n{highlight}")
+
+        self.last_sources = sources
+        return "\n\n".join(formatted)
+
 class ToolManager:
     """Manages available tools for the AI"""
     
@@ -122,14 +187,14 @@ class ToolManager:
     def register_tool(self, tool: Tool):
         """Register any tool that implements the Tool interface"""
         tool_def = tool.get_tool_definition()
-        tool_name = tool_def.get("name")
+        tool_name = tool_def.get("name") or tool_def.get("function", {}).get("name")
         if not tool_name:
             raise ValueError("Tool must have a 'name' in its definition")
         self.tools[tool_name] = tool
 
     
     def get_tool_definitions(self) -> list:
-        """Get all tool definitions for Anthropic tool calling"""
+        """Get all tool definitions for OpenAI/Groq tool calling"""
         return [tool.get_tool_definition() for tool in self.tools.values()]
     
     def execute_tool(self, tool_name: str, **kwargs) -> str:

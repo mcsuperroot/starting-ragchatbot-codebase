@@ -2,10 +2,11 @@
 
 ## Project Overview
 
-- **Python**: 3.13+
+- **Python**: 3.12+ (3.13 not supported due to onnxruntime)
 - **Package Manager**: uv
-- **Framework**: FastAPI with ChromaDB (vector store) and Anthropic Claude (AI)
-- **Quick Start**: `uv sync && ./run.sh`
+- **Framework**: FastAPI with ChromaDB (vector store) and Groq (AI)
+- **Default Model**: llama-3.3-70b-versatile
+- **Quick Start**: `uv sync --python 3.12 && ./run.sh`
 
 ---
 
@@ -13,14 +14,20 @@
 
 ### Installation
 ```bash
-uv sync                 # Install dependencies from pyproject.toml
-uv sync --frozen        # Reproducible install (lock file only)
+uv sync --python 3.12     # Install dependencies with Python 3.12
+uv sync --frozen --python 3.12  # Reproducible install (lock file only)
 ```
 
 ### Running the Application
 ```bash
-./run.sh                # Quick start (creates docs dir + starts server)
-uv run uvicorn backend.app:app --reload --port 8000  # Manual
+./run.sh                 # Quick start (creates docs dir + starts server)
+cd backend && uv run --python 3.12 uvicorn app:app --reload --port 9000  # Manual
+```
+
+### Environment Variables
+Create `.env` in project root:
+```bash
+GROQ_API_KEY=your-groq-api-key-here
 ```
 
 ### Testing (pytest)
@@ -214,7 +221,7 @@ docs/                   # Course documents (txt, pdf, docx)
 ### Environment Variables
 Create `.env` in project root:
 ```bash
-ANTHROPIC_API_KEY=your-api-key-here
+GROQ_API_KEY=your-groq-api-key-here
 ```
 Never commit `.env` files.
 
